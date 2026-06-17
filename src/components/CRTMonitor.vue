@@ -22,6 +22,7 @@
     <div 
       class="crt-screen"
       :class="{
+        'exporting': isExporting,
         'curvature': config.curvature,
         'vignette': config.vignette,
         'scanlines': config.scanlines
@@ -59,6 +60,10 @@ const props = defineProps({
   config: {
     type: Object,
     required: true
+  },
+  isExporting: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -127,10 +132,21 @@ onUnmounted(() => {
     0 0 40px rgba(0,0,0,0.5);
 }
 
+/* 导出时去掉外边框阴影，让成品图更接近“截图感”。 */
+.crt-screen.exporting {
+  box-shadow: none;
+}
+
+.crt-screen.exporting.curvature {
+  box-shadow:
+    inset 0 0 38px 10px rgba(0,0,0,0.75),
+    inset 0 0 16px 4px rgba(0,0,0,0.35);
+}
+
 .crt-content {
   color: var(--crt-text);
   font-family: var(--crt-font), monospace;
-  font-size: var(--crt-font-size);
+  font-size: min(var(--crt-font-size), 8vw);
   line-height: 1.5;
   padding: 8% 10%; 
   height: 100%;
@@ -295,5 +311,19 @@ onUnmounted(() => {
   );
   z-index: 5;
   pointer-events: none;
+}
+
+@media (max-width: 900px) {
+  .crt-content {
+    font-size: min(var(--crt-font-size), 7vw);
+  }
+}
+
+@media (max-width: 600px) {
+  .crt-content {
+    font-size: min(var(--crt-font-size), 6.2vw);
+    line-height: 1.38;
+    padding: 9% 9%;
+  }
 }
 </style>

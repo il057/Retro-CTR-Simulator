@@ -10,7 +10,7 @@
     <div class="main-content">
       <div class="monitor-section">
         <!-- ref is attached to CRTMonitor component, we use $el or target the wrapper -->
-        <CRTMonitor ref="monitorRef" :config="monitorConfig" />
+        <CRTMonitor ref="monitorRef" :config="monitorConfig" :is-exporting="isExporting" />
       </div>
       <div class="controls-section retro-scroll">
         <Controls :config="monitorConfig" @save-image="handleSaveImage" />
@@ -22,6 +22,7 @@
 <script setup>
 import { reactive, ref, computed, watchEffect } from 'vue'
 import * as htmlToImage from 'html-to-image'
+import html2canvas from 'html2canvas'
 import CRTMonitor from './components/CRTMonitor.vue'
 import Controls from './components/Controls.vue'
 import { TEXT_PRESETS, COLOR_PRESETS } from './constants.js'
@@ -31,7 +32,7 @@ const monitorConfig = reactive({
   textColor: COLOR_PRESETS[0].text,
   bgColor: COLOR_PRESETS[0].bg,
   fontFamily: 'ZSFT-2140',
-  fontSize: 32,
+  fontSize: window.matchMedia('(max-width: 900px)').matches ? 24 : 32,
   textAlign: 'left',
   glowIntensity: 5,
   showCursor: true,
@@ -45,38 +46,105 @@ const monitorConfig = reactive({
 })
 
 const monitorRef = ref(null)
+const isExporting = ref(false)
+let fontEmbedCSSCache = null
+
+const isIOS = () => /iPhone|iPad|iPod/i.test(navigator.userAgent)
+const isMobileDevice = () => /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+
+const waitForFonts = async () => {
+  if (!document.fonts) return
+  try {
+    await document.fonts.ready
+    await Promise.all([
+      document.fonts.load(`400 ${monitorConfig.fontSize}px "${monitorConfig.fontFamily}"`),
+      document.fonts.load(`700 ${monitorConfig.fontSize}px "${monitorConfig.fontFamily}"`)
+    ])
+  } catch (error) {
+    console.warn('Font loading check skipped:', error)
+  }
+}
+
+const buildExportBlob = async (targetElement) => {
+  // iOS Safari 对 html-to-image 兼容性不稳定，优先走 html2canvas。
+  if (isIOS()) {
+    const canvas = await html2canvas(targetElement, {
+      backgroundColor: monitorConfig.bgColor,
+      useCORS: true,
+      scale: Math.min(window.devicePixelRatio || 1, 2),
+      logging: false
+    })
+    return await new Promise((resolve) => canvas.toBlob(resolve, 'image/png', 1))
+  }
+
+  if (!fontEmbedCSSCache) {
+    fontEmbedCSSCache = await htmlToImage.getFontEmbedCSS(targetElement)
+  }
+
+  const dataUrl = await htmlToImage.toPng(targetElement, {
+    quality: 1,
+    pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+    cacheBust: true,
+    skipAutoScale: true,
+    fontEmbedCSS: fontEmbedCSSCache,
+    backgroundColor: monitorConfig.bgColor,
+    preferredFontFormat: 'woff2'
+  })
+
+  return await (await fetch(dataUrl)).blob()
+}
 
 const handleSaveImage = async () => {
-  if (!monitorRef.value) return;
-  const targetElement = monitorRef.value.$el || monitorRef.value;
+  if (!monitorRef.value) return
+        // 1. 先获取组件根节点
+        const rootNode = monitorRef.value.$el || monitorRef.value
+        // 2. 向下查询真正带有圆角的 .crt-screen 元素
+        const targetElement = rootNode.querySelector('.crt-screen')
+
+        // 保存原始样式
+        const originalBorderRadius = targetElement.style.borderRadius;
+        const originalBoxShadow = targetElement.style.boxShadow;
+        const originalTransform = targetElement.style.transform;
+
+        // 临时移除圆角和阴影
+        targetElement.style.borderRadius = '0px';
+        targetElement.style.boxShadow = 'none';
+        targetElement.style.transform = 'none';
+   
   try {
-    const dataUrl = await htmlToImage.toPng(targetElement, { 
-      quality: 1,
-      backgroundColor: monitorConfig.bgColor // Use config bg to prevent white edges
-    });
-    
-    // Check if device is mobile to try native share to Photos
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    
-    if (isMobile && navigator.share) {
-      const blob = await (await fetch(dataUrl)).blob();
-      const file = new File([blob], 'retro-crt-screen.png', { type: 'image/png' });
+    await waitForFonts()
+    isExporting.value = true
+    await new Promise((resolve) => requestAnimationFrame(resolve))
+
+    const blob = await buildExportBlob(targetElement)
+    if (!blob) {
+      throw new Error('Canvas toBlob failed')
+    }
+
+    const file = new File([blob], 'retro-crt-screen.png', { type: 'image/png' })
+
+    if (isMobileDevice() && navigator.share) {
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         await navigator.share({
           files: [file],
           title: 'Retro CRT Screen',
-        });
-        return; // Success, stop here
+        })
+        return
       }
     }
 
-    // Fallback: Desktop download trigger
-    const link = document.createElement('a');
-    link.download = 'retro-crt-screen.png';
-    link.href = dataUrl;
-    link.click();
+    const link = document.createElement('a')
+    link.download = 'retro-crt-screen.png'
+    link.href = URL.createObjectURL(blob)
+    link.click()
+    URL.revokeObjectURL(link.href)
   } catch (err) {
     console.error('Save image failed', err);
+  } finally {
+    isExporting.value = false
+    targetElement.style.borderRadius = originalBorderRadius;
+    targetElement.style.boxShadow = originalBoxShadow;
+    targetElement.style.transform = originalTransform;
   }
 }
 

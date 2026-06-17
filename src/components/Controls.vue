@@ -284,6 +284,7 @@ textarea:focus {
 }
 
 .retro-range {
+  appearance: none;
   -webkit-appearance: none;
   background: #222;
   height: 4px;
@@ -314,13 +315,17 @@ textarea:focus {
 }
 
 .color-picker {
+  appearance: none;
   -webkit-appearance: none;
   border: 1px solid #555;
+  border-radius: 0;
   background: #000;
-  width: 40px;
+  width: 46px;
+  min-width: 46px;
   height: 30px;
   padding: 0;
   cursor: pointer;
+  overflow: hidden;
 }
 
 .color-picker::-webkit-color-swatch-wrapper {
@@ -329,6 +334,12 @@ textarea:focus {
 
 .color-picker::-webkit-color-swatch {
   border: none;
+  border-radius: 0;
+}
+
+.color-picker::-moz-color-swatch {
+  border: none;
+  border-radius: 0;
 }
 
 .preset-buttons {
